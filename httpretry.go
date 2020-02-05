@@ -8,14 +8,14 @@ import (
 
 type Option func(*RetryRoundtripper)
 
-type RetryPolicy func(ctx context.Context, resp *http.Response, err error) (bool, error)
+type CheckRetryPolicy func(ctx context.Context, resp *http.Response, err error) bool
 
 type BackoffPolicy func(attemptNum int, resp *http.Response, err error) time.Duration
 
 var (
 	// TODO: refine
-	DefaultRetryPolicy = func(ctx context.Context, resp *http.Response, err error) (bool, error) {
-		return err != nil || resp.StatusCode >= 500, err
+	DefaultRetryPolicy = func(ctx context.Context, resp *http.Response, err error) bool {
+		return err != nil || resp.StatusCode >= 500
 	}
 
 	// TODO: refine
@@ -35,15 +35,17 @@ var (
 			return time.Duration(attemptNum) * waitTime
 		}
 	}
+
+	DefaultMaxRetryCount = 3
 )
 
-func WithRetryCount(retryCount int) Option {
+func WithMaxRetryCount(retryCount int) Option {
 	return func(roundtripper *RetryRoundtripper) {
-		roundtripper.RetryCount = retryCount
+		roundtripper.MaxRetryCount = retryCount
 	}
 }
 
-func WithRetryPolicy(policy RetryPolicy) Option {
+func WithRetryPolicy(policy CheckRetryPolicy) Option {
 	return func(roundtripper *RetryRoundtripper) {
 		roundtripper.RetryPolicy = policy
 	}
@@ -73,8 +75,8 @@ func NewClient(client *http.Client, opts ...Option) *http.Client {
 
 	// set defaults
 	retryRoundtripper := &RetryRoundtripper{
-		Next:          http.DefaultTransport,
-		RetryCount:    3,
+		Next:          nextRoundtripper,
+		MaxRetryCount: DefaultMaxRetryCount,
 		RetryPolicy:   DefaultRetryPolicy,
 		BackoffPolicy: DefaultBackoffPolicy,
 	}
@@ -95,10 +97,8 @@ const (
 
 type RetryRoundtripper struct {
 	Next          http.RoundTripper
-	RetryCount    int
-	MinWait       time.Duration
-	MaxWait       time.Duration
-	RetryPolicy   RetryPolicy
+	MaxRetryCount int
+	RetryPolicy   CheckRetryPolicy
 	BackoffPolicy BackoffPolicy
 }
 
@@ -108,43 +108,32 @@ func (r *RetryRoundtripper) RoundTrip(req *http.Request) (*http.Response, error)
 		err  error
 	)
 
-	for count := 0; count <= r.RetryCount; count++ {
-		// TODO: this does not work in all cases, since http.NewRequest does not recognize all body type / has a fallback
-		// prepare the body, so the actual body will not be consumed
+	for attemptCount := 0; attemptCount <= r.MaxRetryCount; attemptCount++ {
+		resp = nil
+		err = nil
 
-		// TODO: body may only have partially been read, drain and renew, otherwise we could start in the middle or without body at all
+		// TODO: this does not work in all cases, since http.NewRequest does not recognize all body types / has no fallback
+		// TODO: body may only have partially been red -> drain and renew, otherwise we could start in the middle or without body at all
 		if req.GetBody != nil {
+			// TODO: we should use our own body function here to support more bodies and maybe have a fallback for unknown bodies
 			bodyReadCloser, _ := req.GetBody()
 			req.Body = bodyReadCloser
 		}
 
 		resp, err = r.Next.RoundTrip(req)
 
-		// TODO: if false and noerror -> successful
-		// TODO: if false and error failed, but should not retry
-		// TODO: if true and no error -> just go on
-		retry, _ := r.RetryPolicy(req.Context(), resp, err)
-
-		if retry {
-			// TODO: close response body if exists (may happen even if err != nil)
-			// TODO: set resp to nil, since we start over, otherwise we man have a response set when retries are over
-
-			// TODO: also check for context canceled
-			time.Sleep(r.BackoffPolicy(count+1, resp, err))
-			continue
+		if !r.RetryPolicy(req.Context(), resp, err) {
+			break
 		}
 
-		// TODO: what to do with retry error?
+		if resp != nil {
+			// TODO: drain the body first?
+			resp.Body.Close()
+		}
 
-		break
+		// TODO: also check for context canceled
+		time.Sleep(r.BackoffPolicy(attemptCount, resp, err))
 	}
 
-	// TODO: if we land here, retries are all over, if resp is not nil it should be the response of the last failed retry
-	// TODO: if resp is nil, at least err is not nil.
-
-	// TODO: what if response is not nil and err is nil (e.g. if a retry check was on some status code?) should we return an error or the actual response?
-
-	// TODO: if error, close body and set resp to nil, or better do not touch response?
 	return resp, err
-
 }

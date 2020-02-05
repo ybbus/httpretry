@@ -1,141 +1,205 @@
 package httpretry_test
 
 import (
+	"bytes"
+	"errors"
 	"github.com/stretchr/testify/assert"
-	"github.com/ybbus/httpmockserver"
 	"github.com/ybbus/httpretry"
+	"io"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"testing"
+	"time"
 )
+
+var TestBackoffPolicy = func(attemptNum int, resp *http.Response, err error) time.Duration {
+	return 100 * time.Millisecond
+}
+
+type RoundTripperFunc func(req *http.Request) (*http.Response, error)
+
+func (rtf RoundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return rtf(req)
+}
 
 func TestNewDefaultClient(t *testing.T) {
 	check := assert.New(t)
 
-	client := httpretry.NewDefaultClient()
+	client := httpretry.NewDefaultClient(httpretry.WithBackoffPolicy(TestBackoffPolicy))
 
-	check.IsType(&httpretry.RetryRoundtripper{}, client.Transport, "client.Transport must be of type *RetryRoundtripper")
-	retryRoundtripper, ok := client.Transport.(*httpretry.RetryRoundtripper)
-	check.True(ok, "client.Transport must be of type RetryRoundtripper")
-	check.NotNil(retryRoundtripper.Next, "RetryRoundtripper must wrap another Roundtripper")
-	check.Equal(httpretry.DefaultRetryCount, retryRoundtripper.RetryCount, "retrycount must use default value when not set")
-}
-
-func TestWithRetryCount(t *testing.T) {
-	check := assert.New(t)
-
-	retryCount := 5
-	client := httpretry.NewDefaultClient(httpretry.WithRetryCount(retryCount))
-
+	check.IsType(&httpretry.RetryRoundtripper{}, client.Transport)
 	retryRoundtripper, _ := client.Transport.(*httpretry.RetryRoundtripper)
-	check.Equal(retryCount, retryRoundtripper.RetryCount)
+	check.NotNil(retryRoundtripper.Next)
+	check.NotNil(retryRoundtripper.BackoffPolicy)
+	check.NotNil(retryRoundtripper.RetryPolicy)
 }
 
-func TestConnErrorNoEndpoint(t *testing.T) {
+func TestNewClient(t *testing.T) {
 	check := assert.New(t)
 
-	// TODO: add 100 ms linear backoff here
+	customHTTPClient := &http.Client{}
+	client := httpretry.NewClient(customHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
 
-	retryCount := 3
-	client := httpretry.NewClient(
-		&http.Client{},
-		httpretry.WithRetryCount(retryCount),
-	)
-
-	res, err := client.Get("http://0.0.0.0:1234")
-
-	check.Contains(err.Error(), "No connection could be made")
-	check.Nil(res)
+	check.IsType(&httpretry.RetryRoundtripper{}, client.Transport)
+	retryRoundtripper, _ := client.Transport.(*httpretry.RetryRoundtripper)
+	check.NotNil(retryRoundtripper.Next)
+	check.NotNil(retryRoundtripper.BackoffPolicy)
+	check.NotNil(retryRoundtripper.RetryPolicy)
 }
 
-func TestConnErrorNoDNS(t *testing.T) {
+func TestSuccessfulGet(t *testing.T) {
 	check := assert.New(t)
 
-	// TODO: add 100 ms linear backoff here
+	callCount := 0
+	mockRoundtripper := RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		callCount++
+		return FakeResponse(req, 200, []byte("OK")), nil
+	})
 
-	retryCount := 3
-	client := httpretry.NewClient(
-		&http.Client{},
-		httpretry.WithRetryCount(retryCount),
-	)
-
-	res, err := client.Get("http://fqdn-should-not-exist.hopefully:1234")
-
-	check.Contains(err.Error(), "no such host")
-	check.Nil(res)
-}
-
-func TestConnClosed(t *testing.T) {
-	check := assert.New(t)
-
-	// TODO: add 100 ms linear backoff here
-
-	retryCount := 3
-	client := httpretry.NewDefaultClient(httpretry.WithRetryCount(retryCount))
-
-	l, err := net.Listen("tcp", ":0")
-	defer l.Close()
-
-	if err != nil {
-		panic(err)
+	testHTTPClient := &http.Client{
+		Transport: mockRoundtripper,
 	}
-	connectionCount := 0
-	go func() {
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				return
-			}
-			connectionCount++
-			conn.Close()
+	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+
+	res, err := client.Get("http://someurl.com")
+	check.Nil(err)
+	check.Equal(200, res.StatusCode)
+	check.Equal(1, callCount)
+}
+
+func TestSuccessfulGetOneRetry(t *testing.T) {
+	check := assert.New(t)
+
+	callCount := 0
+	mockRoundtripper := RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		callCount++
+		switch callCount {
+		case 1:
+			return nil, errors.New("some error")
+		case 2:
+			return FakeResponse(req, 200, []byte("OK")), nil
+		default:
+			t.Fatal("unexpected call")
 		}
-	}()
+		return FakeResponse(req, 200, []byte("OK")), nil
+	})
 
-	res, err := client.Get("http://" + l.Addr().String())
+	testHTTPClient := &http.Client{
+		Transport: mockRoundtripper,
+	}
+	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
 
-	check.Contains(err.Error(), "EOF")
+	res, err := client.Get("http://someurl.com")
+	check.Nil(err)
+	check.Equal(200, res.StatusCode)
+	check.Equal(2, callCount)
+}
+
+func TestGiveUpGet(t *testing.T) {
+	check := assert.New(t)
+
+	callCount := 0
+	mockRoundtripper := RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		callCount++
+		return nil, errors.New("some error")
+	})
+
+	testHTTPClient := &http.Client{
+		Transport: mockRoundtripper,
+	}
+	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+
+	res, err := client.Get("http://someurl.com")
 	check.Nil(res)
-	check.Equal(retryCount+1, connectionCount)
+	check.Contains(err.Error(), "some error")
+	check.Equal(4, callCount)
 }
 
-func TestFirstRequestSuccessfull(t *testing.T) {
+func TestSuccessfulPostSimpleBytes(t *testing.T) {
 	check := assert.New(t)
 
-	mockServer := httpmockserver.New(t)
-	defer mockServer.Shutdown()
+	callCount := 0
+	postBody := []byte("postbody")
+	var receiveBody []byte
 
-	mockServer.EXPECT().Get("/").Times(1).Response(200).StringBody("ok")
+	mockRoundtripper := RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		callCount++
+		receiveBody, _ = ioutil.ReadAll(req.Body)
+		return FakeResponse(req, 200, []byte("OK")), nil
+	})
 
-	client := httpretry.NewDefaultClient()
+	testHTTPClient := &http.Client{
+		Transport: mockRoundtripper,
+	}
+	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
 
-	res, err := client.Get(mockServer.URL())
+	res, err := client.Post("http://someurl.com", "", bytes.NewReader(postBody))
 	check.Nil(err)
 	check.Equal(200, res.StatusCode)
-	d, _ := ioutil.ReadAll(res.Body)
-	check.Equal("ok", string(d))
-
-	mockServer.Finish()
+	check.Equal(1, callCount)
+	check.Equal(postBody, receiveBody)
 }
 
-/*func TestSecondRequestSuccessfull(t *testing.T) {
+func TestSuccessfulPostSimpleBytesRetry(t *testing.T) {
 	check := assert.New(t)
 
-	mockServer := httpmockserver.New(t)
-	defer mockServer.Shutdown()
+	var (
+		callCount   = 0
+		postBody    = []byte("postbody")
+		receiveBody []byte
+	)
 
-	mockServer.EXPECT().Get("/").Times(1).Response(200).StringBody("ok")
+	mockRoundtripper := RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		callCount++
+		receiveBodyTemp, _ := ioutil.ReadAll(req.Body)
+		if receiveBody != nil {
+			check.Equal(receiveBody, receiveBodyTemp)
+		}
+		receiveBody = receiveBodyTemp
 
-	client := httpretry.NewDefaultClient()
+		if callCount <= 2 {
+			return nil, errors.New("some error")
+		}
+		return FakeResponse(req, 200, []byte("OK")), nil
+	})
 
-	res, err := client.Get(mockServer.URL())
+	testHTTPClient := &http.Client{
+		Transport: mockRoundtripper,
+	}
+	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+
+	res, err := client.Post("http://someurl.com", "", bytes.NewReader(postBody))
 	check.Nil(err)
 	check.Equal(200, res.StatusCode)
-	d, _ := ioutil.ReadAll(res.Body)
-	check.Equal("ok", string(d))
-
-	mockServer.Finish()
+	check.Equal(3, callCount)
+	check.Equal(postBody, receiveBody)
 }
-*/
+
 // TODO: test with ssl (secure disabled, custom cert)
 // TODO: test server times out request not possible with mockServer atm
+
+func FakeResponse(req *http.Request, code int, body []byte) *http.Response {
+	codemap := map[int]string{
+		200: "200 OK",
+	}
+
+	var bodyReadCloser io.ReadCloser
+	var contentLength int64 = -1
+
+	if len(body) != 0 {
+		bodyReadCloser = ioutil.NopCloser(bytes.NewReader(body))
+		contentLength = int64(len(body))
+	}
+
+	return &http.Response{
+		Status:        codemap[code],
+		StatusCode:    code,
+		Proto:         "HTTP/2.0",
+		ProtoMajor:    2,
+		ProtoMinor:    0,
+		Uncompressed:  true,
+		ContentLength: contentLength,
+		Body:          bodyReadCloser,
+		Request:       req,
+	}
+}
