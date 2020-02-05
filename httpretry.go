@@ -8,7 +8,7 @@ import (
 
 type Option func(*RetryRoundtripper)
 
-type RetryPolicy func(resp *http.Response, err error) (bool, error)
+type RetryPolicy func(ctx context.Context, resp *http.Response, err error) (bool, error)
 
 type BackoffPolicy func(attemptNum int, resp *http.Response, err error) time.Duration
 
@@ -19,7 +19,7 @@ var (
 	}
 
 	// TODO: refine
-	DefaultBackoffPolicy = func(attemptNum int, resp *http.Response) time.Duration {
+	DefaultBackoffPolicy = func(attemptNum int, resp *http.Response, err error) time.Duration {
 		return 1 * time.Second
 	}
 
@@ -73,8 +73,10 @@ func NewClient(client *http.Client, opts ...Option) *http.Client {
 
 	// set defaults
 	retryRoundtripper := &RetryRoundtripper{
-		Next:       http.DefaultTransport,
-		RetryCount: 3,
+		Next:          http.DefaultTransport,
+		RetryCount:    3,
+		RetryPolicy:   DefaultRetryPolicy,
+		BackoffPolicy: DefaultBackoffPolicy,
 	}
 
 	// overwrite defaults with user provided configuration
@@ -121,7 +123,7 @@ func (r *RetryRoundtripper) RoundTrip(req *http.Request) (*http.Response, error)
 		// TODO: if false and noerror -> successful
 		// TODO: if false and error failed, but should not retry
 		// TODO: if true and no error -> just go on
-		retry, _ := r.RetryPolicy(resp, err)
+		retry, _ := r.RetryPolicy(req.Context(), resp, err)
 
 		if retry {
 			// TODO: close response body if exists (may happen even if err != nil)
