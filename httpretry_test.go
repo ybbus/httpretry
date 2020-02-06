@@ -13,62 +13,62 @@ import (
 	"time"
 )
 
-var TestBackoffPolicy = func(attemptNum int, resp *http.Response, err error) time.Duration {
-	return 100 * time.Millisecond
-}
+var (
+	ShortBackoffPolicy = httpretry.ConstantBackoff(100 * time.Millisecond)
 
-type RoundTripperFunc func(req *http.Request) (*http.Response, error)
+	OnlyErrorRetryPolicy   httpretry.CheckRetryPolicy = func(statusCode int, err error) bool { return err != nil }
+	ErrorAnd500RetryPolicy httpretry.CheckRetryPolicy = func(statusCode int, err error) bool { return err != nil || statusCode == 500 }
+)
 
-func (rtf RoundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return rtf(req)
-}
-
-func TestNewDefaultClient(t *testing.T) {
+func TestNewRetryableClient(t *testing.T) {
 	check := assert.New(t)
 
-	client := httpretry.NewDefaultClient(httpretry.WithBackoffPolicy(TestBackoffPolicy))
+	client := httpretry.NewRetryableClient(httpretry.WithBackoffPolicy(ShortBackoffPolicy))
 
 	check.IsType(&httpretry.RetryRoundtripper{}, client.Transport)
 	retryRoundtripper, _ := client.Transport.(*httpretry.RetryRoundtripper)
 	check.NotNil(retryRoundtripper.Next)
+	check.Equal(3, retryRoundtripper.MaxRetryCount)
 	check.NotNil(retryRoundtripper.BackoffPolicy)
 	check.NotNil(retryRoundtripper.RetryPolicy)
 }
 
-func TestNewClient(t *testing.T) {
+func TestMakeRetryable(t *testing.T) {
 	check := assert.New(t)
 
 	customHTTPClient := &http.Client{}
-	client := httpretry.NewClient(customHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+	client := httpretry.MakeRetryable(customHTTPClient, httpretry.WithBackoffPolicy(ShortBackoffPolicy))
 
+	check.Equal(customHTTPClient, client)
 	check.IsType(&httpretry.RetryRoundtripper{}, client.Transport)
 	retryRoundtripper, _ := client.Transport.(*httpretry.RetryRoundtripper)
 	check.NotNil(retryRoundtripper.Next)
 	check.NotNil(retryRoundtripper.BackoffPolicy)
 	check.NotNil(retryRoundtripper.RetryPolicy)
+	check.Equal(3, retryRoundtripper.MaxRetryCount)
 }
 
 func TestSuccessfulGet(t *testing.T) {
 	check := assert.New(t)
 
-	callCount := 0
-	mockRoundtripper := RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		callCount++
-		return FakeResponse(req, 200, []byte("OK")), nil
-	})
+	mockRoundtripper := &MockRoundtripper{
+		RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+			return FakeResponse(req, 200, []byte("OK")), nil
+		},
+	}
 
 	testHTTPClient := &http.Client{
 		Transport: mockRoundtripper,
 	}
-	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+	client := httpretry.MakeRetryable(testHTTPClient, httpretry.WithBackoffPolicy(ShortBackoffPolicy))
 
 	res, err := client.Get("http://someurl.com")
 	check.Nil(err)
 	check.Equal(200, res.StatusCode)
-	check.Equal(1, callCount)
+	check.Equal(1, mockRoundtripper.CallCount)
 }
 
-func TestSuccessfulGetOneRetry(t *testing.T) {
+func TestSuccessfulGetWithRetry(t *testing.T) {
 	check := assert.New(t)
 
 	callCount := 0
@@ -88,7 +88,7 @@ func TestSuccessfulGetOneRetry(t *testing.T) {
 	testHTTPClient := &http.Client{
 		Transport: mockRoundtripper,
 	}
-	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+	client := httpretry.MakeRetryable(testHTTPClient, httpretry.WithBackoffPolicy(ShortBackoffPolicy))
 
 	res, err := client.Get("http://someurl.com")
 	check.Nil(err)
@@ -108,7 +108,7 @@ func TestGiveUpGet(t *testing.T) {
 	testHTTPClient := &http.Client{
 		Transport: mockRoundtripper,
 	}
-	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+	client := httpretry.MakeRetryable(testHTTPClient, httpretry.WithBackoffPolicy(ShortBackoffPolicy))
 
 	res, err := client.Get("http://someurl.com")
 	check.Nil(res)
@@ -132,7 +132,7 @@ func TestSuccessfulPostSimpleBytes(t *testing.T) {
 	testHTTPClient := &http.Client{
 		Transport: mockRoundtripper,
 	}
-	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+	client := httpretry.MakeRetryable(testHTTPClient, httpretry.WithBackoffPolicy(ShortBackoffPolicy))
 
 	res, err := client.Post("http://someurl.com", "", bytes.NewReader(postBody))
 	check.Nil(err)
@@ -167,7 +167,7 @@ func TestSuccessfulPostSimpleBytesRetry(t *testing.T) {
 	testHTTPClient := &http.Client{
 		Transport: mockRoundtripper,
 	}
-	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+	client := httpretry.MakeRetryable(testHTTPClient, httpretry.WithBackoffPolicy(ShortBackoffPolicy))
 
 	res, err := client.Post("http://someurl.com", "", bytes.NewReader(postBody))
 	check.Nil(err)
@@ -176,7 +176,7 @@ func TestSuccessfulPostSimpleBytesRetry(t *testing.T) {
 	check.Equal(postBody, receiveBody)
 }
 
-func TestNonRetryableIOReaderShouldNotRetry(t *testing.T) {
+func TestNonRetryableIOReaderShouldBufferRetry(t *testing.T) {
 	check := assert.New(t)
 
 	var (
@@ -205,12 +205,12 @@ func TestNonRetryableIOReaderShouldNotRetry(t *testing.T) {
 	testHTTPClient := &http.Client{
 		Transport: mockRoundtripper,
 	}
-	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+	client := httpretry.MakeRetryable(testHTTPClient, httpretry.WithBackoffPolicy(ShortBackoffPolicy))
 
 	res, err := client.Post("http://someurl.com", "", r)
 	check.Contains(err.Error(), "some error")
 	check.Nil(res)
-	check.Equal(1, callCount)
+	check.Equal(4, callCount)
 	check.Equal(postBody, receiveBody)
 }
 
@@ -227,7 +227,7 @@ func TestContextTimeoutCancelsRetry(t *testing.T) {
 	testHTTPClient := &http.Client{
 		Transport: mockRoundtripper,
 	}
-	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+	client := httpretry.MakeRetryable(testHTTPClient, httpretry.WithBackoffPolicy(ShortBackoffPolicy))
 
 	timeoutContext, _ := context.WithTimeout(context.Background(), 50*time.Millisecond)
 
@@ -257,10 +257,10 @@ func TestRetryOnStatusCode(t *testing.T) {
 	testHTTPClient := &http.Client{
 		Transport: mockRoundtripper,
 	}
-	client := httpretry.NewClient(testHTTPClient,
-		httpretry.WithBackoffPolicy(TestBackoffPolicy),
-		httpretry.WithRetryPolicy(func(resp *http.Response, err error) bool {
-			if err != nil || resp.StatusCode == 500 {
+	client := httpretry.MakeRetryable(testHTTPClient,
+		httpretry.WithBackoffPolicy(ShortBackoffPolicy),
+		httpretry.WithRetryPolicy(func(statusCode int, err error) bool {
+			if err != nil || statusCode == 500 {
 				return true
 			}
 			return false
@@ -294,13 +294,32 @@ func TestCancelingContextCancelsRetry(t *testing.T) {
 		Transport: mockRoundtripper,
 	}
 
-	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+	client := httpretry.MakeRetryable(testHTTPClient, httpretry.WithBackoffPolicy(ShortBackoffPolicy))
 	req, _ := http.NewRequestWithContext(ctx, "GET", "http://someurl.com", nil)
 	res, err := client.Do(req)
 
 	check.Nil(res)
 	check.Contains(err.Error(), "context canceled")
 	check.Equal(2, callCount)
+}
+
+type MockRoundtripper struct {
+	CallCount     int
+	RoundTripFunc func(req *http.Request) (*http.Response, error)
+}
+
+func (f *MockRoundtripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if f.RoundTripFunc == nil {
+		panic("no roundtripper implementation")
+	}
+	f.CallCount++
+	return f.RoundTripFunc(req)
+}
+
+type RoundTripperFunc func(req *http.Request) (*http.Response, error)
+
+func (rtf RoundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return rtf(req)
 }
 
 func FakeResponse(req *http.Request, code int, body []byte) *http.Response {
