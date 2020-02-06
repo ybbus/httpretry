@@ -1,20 +1,22 @@
 package httpretry
 
 import (
-	"context"
+	"io"
+	"io/ioutil"
 	"net/http"
 	"time"
 )
 
 type Option func(*RetryRoundtripper)
 
-type CheckRetryPolicy func(ctx context.Context, resp *http.Response, err error) bool
+// TODO: should be possible to check on response body and reset after checking
+type CheckRetryPolicy func(resp *http.Response, err error) bool
 
 type BackoffPolicy func(attemptNum int, resp *http.Response, err error) time.Duration
 
 var (
 	// TODO: refine
-	DefaultRetryPolicy = func(ctx context.Context, resp *http.Response, err error) bool {
+	DefaultRetryPolicy = func(resp *http.Response, err error) bool {
 		return err != nil || resp.StatusCode >= 500
 	}
 
@@ -108,7 +110,9 @@ func (r *RetryRoundtripper) RoundTrip(req *http.Request) (*http.Response, error)
 		err  error
 	)
 
-	for attemptCount := 0; attemptCount <= r.MaxRetryCount; attemptCount++ {
+	noRetry := false
+	maxAttempts := r.MaxRetryCount + 1
+	for attemptCount := 1; attemptCount <= maxAttempts; attemptCount++ {
 		resp = nil
 		err = nil
 
@@ -118,22 +122,45 @@ func (r *RetryRoundtripper) RoundTrip(req *http.Request) (*http.Response, error)
 			// TODO: we should use our own body function here to support more bodies and maybe have a fallback for unknown bodies
 			bodyReadCloser, _ := req.GetBody()
 			req.Body = bodyReadCloser
+		} else if req.Body != nil {
+			noRetry = true
 		}
 
 		resp, err = r.Next.RoundTrip(req)
 
-		if !r.RetryPolicy(req.Context(), resp, err) {
-			break
+		// TODO: because of the used io.Reader, we may not retry, can we do better? maybe io.TeeReader and RetryBufferSize
+		// TODO: check if request was completely red, and if not read the rest in
+
+		// TODO: should we be able to access (consume) the resp body here?
+		if noRetry || !r.RetryPolicy(resp, err) {
+			// TODO: for "noRetry" we need a logger here, since this info should not be propagated in the err message, or should it?
+			return resp, err
 		}
 
-		if resp != nil {
-			// TODO: drain the body first?
-			resp.Body.Close()
-		}
+		// TODO: should we be able to access (consume) the resp body here?
+		backoff := r.BackoffPolicy(attemptCount, resp, err)
 
-		// TODO: also check for context canceled
-		time.Sleep(r.BackoffPolicy(attemptCount, resp, err))
+		// wo won't need the response anymore, drain (4096kb) and close it
+		drainAndCloseBody(resp)
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-timer.C:
+			continue
+		case <-req.Context().Done():
+			// context was canceled, return context error
+			return nil, req.Context().Err()
+		}
 	}
 
+	// no more attempts, return the last response / error
 	return resp, err
+}
+
+func drainAndCloseBody(resp *http.Response) {
+	if resp != nil {
+		// TODO: can this block?
+		io.CopyN(ioutil.Discard, resp.Body, 4096)
+		resp.Body.Close()
+	}
 }

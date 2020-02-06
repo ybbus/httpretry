@@ -2,6 +2,7 @@ package httpretry_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/ybbus/httpretry"
@@ -175,8 +176,132 @@ func TestSuccessfulPostSimpleBytesRetry(t *testing.T) {
 	check.Equal(postBody, receiveBody)
 }
 
-// TODO: test with ssl (secure disabled, custom cert)
-// TODO: test server times out request not possible with mockServer atm
+func TestNonRetryableIOReaderShouldNotRetry(t *testing.T) {
+	check := assert.New(t)
+
+	var (
+		callCount   = 0
+		postBody    = []byte("postbody")
+		receiveBody []byte
+	)
+
+	// use a pipe, since this generates a Pipereader, that should not be retriable (for now)
+	r, w := io.Pipe()
+	go func() {
+		w.Write(postBody)
+		w.Close()
+	}()
+
+	mockRoundtripper := RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		callCount++
+		receiveBodyTemp, _ := ioutil.ReadAll(req.Body)
+		if receiveBody != nil {
+			check.Equal(receiveBody, receiveBodyTemp)
+		}
+		receiveBody = receiveBodyTemp
+		return nil, errors.New("some error")
+	})
+
+	testHTTPClient := &http.Client{
+		Transport: mockRoundtripper,
+	}
+	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+
+	res, err := client.Post("http://someurl.com", "", r)
+	check.Contains(err.Error(), "some error")
+	check.Nil(res)
+	check.Equal(1, callCount)
+	check.Equal(postBody, receiveBody)
+}
+
+func TestContextTimeoutCancelsRetry(t *testing.T) {
+	check := assert.New(t)
+
+	callCount := 0
+
+	mockRoundtripper := RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		callCount++
+		return nil, errors.New("some error")
+	})
+
+	testHTTPClient := &http.Client{
+		Transport: mockRoundtripper,
+	}
+	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+
+	timeoutContext, _ := context.WithTimeout(context.Background(), 50*time.Millisecond)
+
+	req, _ := http.NewRequestWithContext(timeoutContext, "GET", "http://someurl.com", nil)
+
+	res, err := client.Do(req)
+	check.Contains(err.Error(), "context deadline exceeded")
+	check.Nil(res)
+	check.Equal(1, callCount)
+}
+
+func TestRetryOnStatusCode(t *testing.T) {
+	check := assert.New(t)
+
+	callCount := 0
+
+	mockRoundtripper := RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		callCount++
+
+		if callCount == 3 {
+			return FakeResponse(req, 200, []byte("ok")), nil
+		}
+
+		return FakeResponse(req, 500, []byte("error response")), nil
+	})
+
+	testHTTPClient := &http.Client{
+		Transport: mockRoundtripper,
+	}
+	client := httpretry.NewClient(testHTTPClient,
+		httpretry.WithBackoffPolicy(TestBackoffPolicy),
+		httpretry.WithRetryPolicy(func(resp *http.Response, err error) bool {
+			if err != nil || resp.StatusCode == 500 {
+				return true
+			}
+			return false
+		}),
+	)
+
+	req, _ := http.NewRequest("GET", "http://someurl.com", nil)
+
+	res, err := client.Do(req)
+	check.Nil(err)
+	check.NotNil(res)
+	check.Equal(200, res.StatusCode)
+	check.Equal(3, callCount)
+}
+
+func TestCancelingContextCancelsRetry(t *testing.T) {
+	check := assert.New(t)
+
+	callCount := 0
+	ctx, cancel := context.WithCancel(context.Background())
+
+	mockRoundtripper := RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		callCount++
+		if callCount == 2 {
+			cancel()
+		}
+		return nil, errors.New("some error")
+	})
+
+	testHTTPClient := &http.Client{
+		Transport: mockRoundtripper,
+	}
+
+	client := httpretry.NewClient(testHTTPClient, httpretry.WithBackoffPolicy(TestBackoffPolicy))
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://someurl.com", nil)
+	res, err := client.Do(req)
+
+	check.Nil(res)
+	check.Contains(err.Error(), "context canceled")
+	check.Equal(2, callCount)
+}
 
 func FakeResponse(req *http.Request, code int, body []byte) *http.Response {
 	codemap := map[int]string{
