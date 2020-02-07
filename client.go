@@ -4,7 +4,9 @@ import (
 	"net/http"
 )
 
-const ()
+const (
+	DefaultMaxRetryCount = 3
+)
 
 func NewRetryableClient(opts ...Option) *http.Client {
 	return MakeRetryable(&http.Client{}, opts...)
