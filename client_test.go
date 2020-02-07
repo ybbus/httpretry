@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	ShortBackoffPolicy = httpretry.ConstantBackoff(100 * time.Millisecond)
+	ShortBackoffPolicy = httpretry.ConstantBackoff(100*time.Millisecond, 0)
 
 	OnlyErrorRetryPolicy   httpretry.CheckRetryPolicy = func(statusCode int, err error) bool { return err != nil }
 	ErrorAnd500RetryPolicy httpretry.CheckRetryPolicy = func(statusCode int, err error) bool { return err != nil || statusCode == 500 }
