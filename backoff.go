@@ -12,19 +12,25 @@ import (
 type BackoffPolicy func(attemptCount int) time.Duration
 
 var (
-	// DefaultBackoffPolicy uses ExponentialBackoff with 1 second minWait, 30 seconds max wait and 100ms max jitter
-	DefaultBackoffPolicy BackoffPolicy = ExponentialBackoff(1*time.Second, 30*time.Second, 100*time.Millisecond)
+	// DefaultBackoffPolicy uses ExponentialBackoff with 1 second minWait, 30 seconds max wait and 200ms jitter
+	DefaultBackoffPolicy BackoffPolicy = ExponentialBackoff(1*time.Second, 30*time.Second, 200*time.Millisecond)
 
 	// ConstantBackoff waits for the exact same duration after a failed retry.
 	//
-	// maxJitter is a random interval [0, maxJitter) added to the constant backoff.
+	// constantWait: the constant backoff
 	//
-	// Example: constantWait = 5 * time.Second, backoff will be: 5 seconds + [0, maxJitter).
+	// maxJitter is a random interval [0, maxJitter) added to the exponential backoff.
+	//
+	// Example:
+	//   minWait = 2 * time.Seconds
+	//   maxJitter = 0 * time.Seconds
+	//
+	//   Backoff will be: 2, 2, 2, ...
 	ConstantBackoff = func(constantWait time.Duration, maxJitter time.Duration) BackoffPolicy {
-		if constantWait.Milliseconds() < 0 {
+		if constantWait < 0 {
 			constantWait = 0
 		}
-		if maxJitter.Milliseconds() < 0 {
+		if maxJitter < 0 {
 			maxJitter = 0
 		}
 
@@ -35,16 +41,23 @@ var (
 
 	// LinearBackoff increases the backoff time by multiplying the minWait duration by the number of retries.
 	//
-	// maxJitter is a random interval [0, maxJitter) added to the linear backoff.
+	// minWait: the initial backoff
 	//
-	// if maxWait > 0, this will set an upper bound of the maximum time to wait between to requests.
+	// maxWait: sets an upper bound on the maximum time to wait between two requests. set to 0 for no upper bound
 	//
-	// Example: minWait = 2 * time.Seconds, backoff will be: 2, 4, 6, 8, ... + [0, maxJitter).
+	// maxJitter is a random interval [0, maxJitter) added to the exponential backoff.
+	//
+	// Example:
+	//   minWait = 1 * time.Seconds
+	//   maxWait = 5 * time.Seconds
+	//   maxJitter = 0 * time.Seconds
+	//
+	//   Backoff will be: 1, 2, 3, 4, 5, 5, 5, ...
 	LinearBackoff = func(minWait time.Duration, maxWait time.Duration, maxJitter time.Duration) BackoffPolicy {
-		if minWait.Milliseconds() < 0 {
+		if minWait < 0 {
 			minWait = 0
 		}
-		if maxJitter.Milliseconds() < 0 {
+		if maxJitter < 0 {
 			maxJitter = 0
 		}
 		if maxWait < minWait {
@@ -61,16 +74,23 @@ var (
 
 	// ExponentialBackoff increases the backoff exponentially by multiplying the minWait with 2^attemptCount
 	//
+	// minWait: the initial backoff
+	//
+	// maxWait: sets an upper bound on the maximum time to wait between two requests. set to 0 for no upper bound
+	//
 	// maxJitter is a random interval [0, maxJitter) added to the exponential backoff.
 	//
-	// if maxWait > 0, this will set an upper bound of the maximum time to wait between to requests.
+	// Example:
+	//   minWait = 1 * time.Seconds
+	//   maxWait = 60 * time.Seconds
+	//   maxJitter = 0 * time.Seconds
 	//
-	// Example minWait = 1 * time.Seconds, backoff will be: 1, 2, 4, 8, 16, ... + [0, maxJitter)
+	//   Backoff will be: 1, 2, 4, 8, 16, 32, 60, 60, ...
 	ExponentialBackoff = func(minWait time.Duration, maxWait time.Duration, maxJitter time.Duration) BackoffPolicy {
-		if minWait.Milliseconds() < 0 {
+		if minWait < 0 {
 			minWait = 0
 		}
-		if maxJitter.Milliseconds() < 0 {
+		if maxJitter < 0 {
 			maxJitter = 0
 		}
 		if maxWait < minWait {
@@ -88,18 +108,19 @@ var (
 
 // minDuration returns the minimum of two durations
 func minDuration(duration1 time.Duration, duration2 time.Duration) time.Duration {
-	if duration1.Milliseconds() < duration2.Milliseconds() {
+	if duration1 < duration2 {
 		return duration1
 	}
 	return duration2
 }
 
 // randJitter returns a random duration in the interval [0, maxJitter)
+//
+// if maxJitter is <= 0, a duration of 0 is returned
 func randJitter(maxJitter time.Duration) time.Duration {
-	maxJitterMs := maxJitter.Milliseconds()
-	if maxJitterMs == 0 {
-		return time.Duration(0)
+	if maxJitter <= 0 {
+		return 0
 	}
 
-	return time.Duration(rand.Intn(int(maxJitterMs))) * time.Millisecond
+	return time.Duration(rand.Intn(int(maxJitter)))
 }

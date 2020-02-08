@@ -25,7 +25,6 @@ var DefaultRetryPolicy RetryPolicy = func(statusCode int, err error) bool {
 		if urlErrorRetry(e) {
 			return true
 		}
-	case error:
 	case nil: // no error, continue
 	default: // we should always retry unknown errors
 		return true
@@ -63,5 +62,6 @@ func urlErrorRetry(urlError *url.Error) bool {
 	}
 
 	// TODO: something else that should be retried?
+	// all other errors should be retried
 	return true
 }
