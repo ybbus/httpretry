@@ -8,7 +8,7 @@ func WithMaxRetryCount(maxRetryCount int) Option {
 	}
 }
 
-func WithRetryPolicy(retryPolicy CheckRetryPolicy) Option {
+func WithRetryPolicy(retryPolicy RetryPolicy) Option {
 	return func(roundtripper *RetryRoundtripper) {
 		roundtripper.RetryPolicy = retryPolicy
 	}
