@@ -11,7 +11,7 @@ import (
 type RetryRoundtripper struct {
 	Next          http.RoundTripper
 	MaxRetryCount int
-	RetryPolicy   CheckRetryPolicy
+	RetryPolicy   RetryPolicy
 	BackoffPolicy BackoffPolicy
 }
 
@@ -70,7 +70,7 @@ func (r *RetryRoundtripper) RoundTrip(req *http.Request) (*http.Response, error)
 
 		backoff := r.BackoffPolicy(attemptCount)
 
-		// wo won't need the response anymore, drain (4096kb) and close it
+		// wo won't need the response anymore, drain (max 4096kb) and close it
 		drainAndCloseBody(resp)
 
 		timer := time.NewTimer(backoff)
