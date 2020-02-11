@@ -44,7 +44,7 @@ func TestRetryRoundtripperSimple(t *testing.T) {
 		check.Equal(1, mockRetryPolicy.CallCount)
 		check.Equal(0, mockBackoffPolicy.CallCount)
 		check.Equal(1, mockRoundtripper.CallCount)
-		check.True(responseContains(t, res, "OK"))
+		check.True(readerContains(t, res.Body, "OK"))
 		check.NoError(err)
 	})
 
@@ -65,7 +65,7 @@ func TestRetryRoundtripperSimple(t *testing.T) {
 		check.Equal(2, mockRetryPolicy.CallCount)
 		check.Equal(1, mockBackoffPolicy.CallCount)
 		check.Equal(2, mockRoundtripper.CallCount)
-		check.True(responseContains(t, res, "ok"))
+		check.True(readerContains(t, res.Body, "ok"))
 		check.Equal(200, res.StatusCode)
 		check.NoError(err)
 	})
@@ -89,7 +89,7 @@ func TestRetryRoundtripperSimple(t *testing.T) {
 		check.Equal(3, mockRetryPolicy.CallCount)
 		check.Equal(2, mockBackoffPolicy.CallCount)
 		check.Equal(3, mockRoundtripper.CallCount)
-		check.True(responseContains(t, res, "finished"))
+		check.True(readerContains(t, res.Body, "finished"))
 		check.Equal(500, res.StatusCode)
 		check.NoError(err)
 	})
@@ -138,15 +138,64 @@ func TestRetryRoundtripperWithBody(t *testing.T) {
 		retryRoundtripper.Next = mockRoundtripper
 	}
 
-	t.Run("should return response if first call was successful", func(t *testing.T) {
+	t.Run("should retry bytes.Reader body correctly", func(t *testing.T) {
 		reset()
-		check.True(true)
+
+		mockRoundtripper.RoundTripFunc = func(req *http.Request, called int) (response *http.Response, e error) {
+			readerContains(t, req.Body, "body")
+			switch called {
+			case 4:
+				return FakeResponse(req, 200, []byte("ok")), nil
+			default:
+				return FakeResponse(req, 500, []byte("error")), nil
+			}
+		}
+
+		bodyReader := bytes.NewReader([]byte("body"))
+		req, _ := http.NewRequest("POST", "https://my-super-nonexisting-url.asd", bodyReader)
+		res, err := retryRoundtripper.RoundTrip(req)
+
+		check.Equal(4, mockRetryPolicy.CallCount)
+		check.Equal(3, mockBackoffPolicy.CallCount)
+		check.Equal(4, mockRoundtripper.CallCount)
+		check.True(readerContains(t, res.Body, "ok"))
+		check.NoError(err)
+	})
+
+	t.Run("should retry reader without GetBody() function correctly", func(t *testing.T) {
+		reset()
+
+		mockRoundtripper.RoundTripFunc = func(req *http.Request, called int) (response *http.Response, e error) {
+			readerContains(t, req.Body, "body")
+			switch called {
+			case 4:
+				return FakeResponse(req, 200, []byte("ok")), nil
+			default:
+				return FakeResponse(req, 500, []byte("error")), nil
+			}
+		}
+
+		bodyReader := bytes.NewReader([]byte("body"))
+		r, w := io.Pipe()
+		go func() {
+			bodyReader.WriteTo(w)
+			w.Close()
+		}()
+
+		req, _ := http.NewRequest("POST", "https://my-super-nonexisting-url.asd", r)
+		res, err := retryRoundtripper.RoundTrip(req)
+
+		check.Equal(4, mockRetryPolicy.CallCount)
+		check.Equal(3, mockBackoffPolicy.CallCount)
+		check.Equal(4, mockRoundtripper.CallCount)
+		check.True(readerContains(t, res.Body, "ok"))
+		check.NoError(err)
 	})
 }
 
-func responseContains(t *testing.T, res *http.Response, substring string) bool {
+func readerContains(t *testing.T, r io.Reader, substring string) bool {
 	t.Helper()
-	d, err := ioutil.ReadAll(res.Body)
+	d, err := ioutil.ReadAll(r)
 	if err != nil {
 		t.Fatal("could not read body: ", err.Error())
 	}
