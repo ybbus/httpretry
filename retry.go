@@ -14,17 +14,7 @@ import (
 // The statusCode may be 0 if there was no response available (e.g. in case of a request error).
 type RetryPolicy func(statusCode int, err error) bool
 
-// DefaultRetryPolicy checks for some common errors that are likely not retryable and for status codes
-// that should be retried.
-//
-// For example:
-//  - url parsing errors
-//  - too many redirects
-//  - certificate errors
-//  - BadGateway
-//  - ServiceUnavailable
-//  - etc.
-var DefaultRetryPolicy RetryPolicy = func(statusCode int, err error) bool {
+var defaultRetryPolicy RetryPolicy = func(statusCode int, err error) bool {
 	// check if error is of type temporary
 	t, ok := err.(interface{ Temporary() bool })
 	if ok && t.Temporary() {

@@ -83,7 +83,7 @@ func TestDefaultRetryPolicy(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.Description, func(t *testing.T) {
-			shouldRetry := DefaultRetryPolicy(test.StatusCodeIn, test.ErrorIn)
+			shouldRetry := defaultRetryPolicy(test.StatusCodeIn, test.ErrorIn)
 			check.Equal(test.Expect, shouldRetry)
 		})
 	}

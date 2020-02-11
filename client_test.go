@@ -18,7 +18,7 @@ func TestNewDefaultClient(t *testing.T) {
 
 		roundTripper := client.Transport.(*httpretry.RetryRoundtripper)
 		check.IsType(&http.Transport{}, roundTripper.Next)
-		check.Equal(httpretry.DefaultMaxRetryCount, roundTripper.MaxRetryCount)
+		check.Equal(5, roundTripper.MaxRetryCount)
 		check.NotNil(roundTripper.CalculateBackoff)
 		check.NotNil(roundTripper.ShouldRetry)
 	})
@@ -64,7 +64,7 @@ func TestNewCustomClient(t *testing.T) {
 
 		roundTripper := client.Transport.(*httpretry.RetryRoundtripper)
 		check.Equal(customTransport, roundTripper.Next)
-		check.Equal(httpretry.DefaultMaxRetryCount, roundTripper.MaxRetryCount)
+		check.Equal(5, roundTripper.MaxRetryCount)
 		check.NotNil(roundTripper.CalculateBackoff)
 		check.NotNil(roundTripper.ShouldRetry)
 	})

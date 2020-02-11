@@ -12,8 +12,8 @@ import (
 type BackoffPolicy func(attemptCount int) time.Duration
 
 var (
-	// DefaultBackoffPolicy uses ExponentialBackoff with 1 second minWait, 30 seconds max wait and 200ms jitter
-	DefaultBackoffPolicy = ExponentialBackoff(1*time.Second, 30*time.Second, 200*time.Millisecond)
+	// defaultBackoffPolicy uses ExponentialBackoff with 1 second minWait, 30 seconds max wait and 200ms jitter
+	defaultBackoffPolicy = ExponentialBackoff(1*time.Second, 30*time.Second, 200*time.Millisecond)
 
 	// ConstantBackoff waits for the exact same duration after a failed retry.
 	//

@@ -6,8 +6,7 @@ import (
 )
 
 const (
-	// DefaultMaxRetryCount is the default retry count if the user does not provide any.
-	DefaultMaxRetryCount = 5
+	defaultMaxRetryCount = 5
 )
 
 // NewDefaultClient returns a default http client with retry functionality wrapped around the Roundtripper (client.Transport).
@@ -49,9 +48,9 @@ func NewCustomClient(client *http.Client, opts ...Option) *http.Client {
 	// set defaults
 	retryRoundtripper := &RetryRoundtripper{
 		Next:             nextRoundtripper,
-		MaxRetryCount:    DefaultMaxRetryCount,
-		ShouldRetry:      DefaultRetryPolicy,
-		CalculateBackoff: DefaultBackoffPolicy,
+		MaxRetryCount:    defaultMaxRetryCount,
+		ShouldRetry:      defaultRetryPolicy,
+		CalculateBackoff: defaultBackoffPolicy,
 	}
 
 	// overwrite defaults with user provided configuration
