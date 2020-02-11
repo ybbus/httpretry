@@ -64,7 +64,7 @@ var (
 			maxWait = 0
 		}
 		return func(attemptCount int) time.Duration {
-			nextWait := time.Duration(attemptCount+1)*minWait + randJitter(maxJitter)
+			nextWait := time.Duration(attemptCount)*minWait + randJitter(maxJitter)
 			if maxWait > 0 {
 				return minDuration(nextWait, maxWait)
 			}
@@ -97,7 +97,7 @@ var (
 			maxWait = 0
 		}
 		return func(attemptCount int) time.Duration {
-			nextWait := time.Duration(math.Pow(2, float64(attemptCount)))*minWait + randJitter(maxJitter)
+			nextWait := time.Duration(math.Pow(2, float64(attemptCount-1)))*minWait + randJitter(maxJitter)
 			if maxWait > 0 {
 				return minDuration(nextWait, maxWait)
 			}
