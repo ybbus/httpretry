@@ -15,17 +15,17 @@ func TestConstantBackoff(t *testing.T) {
 
 		backoff := httpretry.ConstantBackoff(waitDuration, 0)
 
-		check.Equal(waitDuration, backoff(0))
 		check.Equal(waitDuration, backoff(1))
 		check.Equal(waitDuration, backoff(2))
+		check.Equal(waitDuration, backoff(3))
 	})
 
 	t.Run("backoff should be 0 if negative", func(t *testing.T) {
 		backoffNegativ := httpretry.ConstantBackoff(-1*time.Second, 0)
 
-		check.Equal(0*time.Second, backoffNegativ(0))
 		check.Equal(0*time.Second, backoffNegativ(1))
 		check.Equal(0*time.Second, backoffNegativ(2))
+		check.Equal(0*time.Second, backoffNegativ(3))
 	})
 
 	t.Run("maxJitter should be in correct interval", func(t *testing.T) {
@@ -55,9 +55,9 @@ func TestConstantBackoff(t *testing.T) {
 	t.Run("maxJitter should be 0 if negative", func(t *testing.T) {
 		backoffJitterNegativ := httpretry.ConstantBackoff(1*time.Second, -1*time.Second)
 
-		check.Equal(1*time.Second, backoffJitterNegativ(0))
 		check.Equal(1*time.Second, backoffJitterNegativ(1))
 		check.Equal(1*time.Second, backoffJitterNegativ(2))
+		check.Equal(1*time.Second, backoffJitterNegativ(3))
 	})
 }
 
@@ -69,9 +69,9 @@ func TestLinearBackoff(t *testing.T) {
 
 		backoff := httpretry.LinearBackoff(minWait, 0, 0)
 
-		check.Equal(2*time.Second, backoff(0))
-		check.Equal(4*time.Second, backoff(1))
-		check.Equal(6*time.Second, backoff(2))
+		check.Equal(2*time.Second, backoff(1))
+		check.Equal(4*time.Second, backoff(2))
+		check.Equal(6*time.Second, backoff(3))
 	})
 
 	t.Run("backoff should stop at maxwait", func(t *testing.T) {
@@ -80,10 +80,10 @@ func TestLinearBackoff(t *testing.T) {
 
 		backoff := httpretry.LinearBackoff(minWait, maxWait, 0)
 
-		check.Equal(1*time.Second, backoff(0))
-		check.Equal(2*time.Second, backoff(1))
-		check.Equal(3*time.Second, backoff(2))
+		check.Equal(1*time.Second, backoff(1))
+		check.Equal(2*time.Second, backoff(2))
 		check.Equal(3*time.Second, backoff(3))
+		check.Equal(3*time.Second, backoff(4))
 	})
 
 	t.Run("maxWait should be 0 if < minWait", func(t *testing.T) {
@@ -92,18 +92,18 @@ func TestLinearBackoff(t *testing.T) {
 
 		backoff := httpretry.LinearBackoff(minWait, maxWait, 0)
 
-		check.Equal(2*time.Second, backoff(0))
-		check.Equal(4*time.Second, backoff(1))
-		check.Equal(6*time.Second, backoff(2))
-		check.Equal(8*time.Second, backoff(3))
+		check.Equal(2*time.Second, backoff(1))
+		check.Equal(4*time.Second, backoff(2))
+		check.Equal(6*time.Second, backoff(3))
+		check.Equal(8*time.Second, backoff(4))
 	})
 
 	t.Run("backoff should be 0 if negative", func(t *testing.T) {
 		backoffNegativ := httpretry.LinearBackoff(-1*time.Second, 0, 0)
 
-		check.Equal(0*time.Second, backoffNegativ(0))
 		check.Equal(0*time.Second, backoffNegativ(1))
 		check.Equal(0*time.Second, backoffNegativ(2))
+		check.Equal(0*time.Second, backoffNegativ(3))
 	})
 
 	t.Run("maxJitter should be in correct interval", func(t *testing.T) {
@@ -135,9 +135,9 @@ func TestLinearBackoff(t *testing.T) {
 	t.Run("maxJitter should be 0 if negative", func(t *testing.T) {
 		backoffJitterNegativ := httpretry.LinearBackoff(2*time.Second, 0, -1*time.Second)
 
-		check.Equal(2*time.Second, backoffJitterNegativ(0))
-		check.Equal(4*time.Second, backoffJitterNegativ(1))
-		check.Equal(6*time.Second, backoffJitterNegativ(2))
+		check.Equal(2*time.Second, backoffJitterNegativ(1))
+		check.Equal(4*time.Second, backoffJitterNegativ(2))
+		check.Equal(6*time.Second, backoffJitterNegativ(3))
 	})
 }
 
@@ -149,10 +149,10 @@ func TestExponentialBackoff(t *testing.T) {
 
 		backoff := httpretry.ExponentialBackoff(minWait, 0, 0)
 
-		check.Equal(1*time.Second, backoff(0))
-		check.Equal(2*time.Second, backoff(1))
-		check.Equal(4*time.Second, backoff(2))
-		check.Equal(8*time.Second, backoff(3))
+		check.Equal(1*time.Second, backoff(1))
+		check.Equal(2*time.Second, backoff(2))
+		check.Equal(4*time.Second, backoff(3))
+		check.Equal(8*time.Second, backoff(4))
 	})
 
 	t.Run("backoff should stop at maxWait", func(t *testing.T) {
@@ -161,10 +161,10 @@ func TestExponentialBackoff(t *testing.T) {
 
 		backoff := httpretry.ExponentialBackoff(minWait, maxWait, 0)
 
-		check.Equal(1*time.Second, backoff(0))
-		check.Equal(2*time.Second, backoff(1))
-		check.Equal(3*time.Second, backoff(2))
+		check.Equal(1*time.Second, backoff(1))
+		check.Equal(2*time.Second, backoff(2))
 		check.Equal(3*time.Second, backoff(3))
+		check.Equal(3*time.Second, backoff(4))
 	})
 
 	t.Run("maxWait should be 0 if < minWait", func(t *testing.T) {
@@ -173,10 +173,10 @@ func TestExponentialBackoff(t *testing.T) {
 
 		backoff := httpretry.ExponentialBackoff(minWait, maxWait, 0)
 
-		check.Equal(2*time.Second, backoff(0))
-		check.Equal(4*time.Second, backoff(1))
-		check.Equal(8*time.Second, backoff(2))
-		check.Equal(16*time.Second, backoff(3))
+		check.Equal(2*time.Second, backoff(1))
+		check.Equal(4*time.Second, backoff(2))
+		check.Equal(8*time.Second, backoff(3))
+		check.Equal(16*time.Second, backoff(4))
 	})
 
 	t.Run("backoff should be 0 if negative", func(t *testing.T) {
@@ -216,9 +216,9 @@ func TestExponentialBackoff(t *testing.T) {
 	t.Run("maxJitter should be 0 if negative", func(t *testing.T) {
 		backoffJitterNegativ := httpretry.ExponentialBackoff(1*time.Second, 0, -1*time.Second)
 
-		check.Equal(1*time.Second, backoffJitterNegativ(0))
-		check.Equal(2*time.Second, backoffJitterNegativ(1))
-		check.Equal(4*time.Second, backoffJitterNegativ(2))
-		check.Equal(8*time.Second, backoffJitterNegativ(3))
+		check.Equal(1*time.Second, backoffJitterNegativ(1))
+		check.Equal(2*time.Second, backoffJitterNegativ(2))
+		check.Equal(4*time.Second, backoffJitterNegativ(3))
+		check.Equal(8*time.Second, backoffJitterNegativ(4))
 	})
 }
