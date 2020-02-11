@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// RetryPolicy is used to decide if a request should be retried.
+// RetryPolicy decides if a request should be retried.
 //
-// This is done by examining the response status code and the error message of the last request.
+// This is done by examining the response status code and the error message of the last response.
 //
 // The statusCode may be 0 if there was no response available (e.g. in case of a request error).
 type RetryPolicy func(statusCode int, err error) bool
@@ -25,14 +25,12 @@ type RetryPolicy func(statusCode int, err error) bool
 //  - ServiceUnavailable
 //  - etc.
 var DefaultRetryPolicy RetryPolicy = func(statusCode int, err error) bool {
-	// retry if error is flagged temporary, if not we will do further checks
-	// TODO: should we trust when Temporary is implemented and returns false to not retry?
+	// check if error is of type temporary
 	t, ok := err.(interface{ Temporary() bool })
 	if ok && t.Temporary() {
 		return true
 	}
 
-	// TODO: may be refined
 	// we cannot know all errors, so we filter errors that should NOT be retried
 	switch e := err.(type) {
 	case *url.Error:
@@ -57,9 +55,6 @@ var DefaultRetryPolicy RetryPolicy = func(statusCode int, err error) bool {
 	case nil: // no error, continue
 	}
 
-	// here we can be sure we got no error
-
-	// TODO: may be refined
 	// most of the codes should not be retried, so we filter status codes that SHOULD be retried
 	switch statusCode {
 	case // status codes that should be retried

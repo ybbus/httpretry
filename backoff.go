@@ -13,13 +13,13 @@ type BackoffPolicy func(attemptCount int) time.Duration
 
 var (
 	// DefaultBackoffPolicy uses ExponentialBackoff with 1 second minWait, 30 seconds max wait and 200ms jitter
-	DefaultBackoffPolicy BackoffPolicy = ExponentialBackoff(1*time.Second, 30*time.Second, 200*time.Millisecond)
+	DefaultBackoffPolicy = ExponentialBackoff(1*time.Second, 30*time.Second, 200*time.Millisecond)
 
 	// ConstantBackoff waits for the exact same duration after a failed retry.
 	//
 	// constantWait: the constant backoff
 	//
-	// maxJitter is a random interval [0, maxJitter) added to the exponential backoff.
+	// maxJitter: random interval [0, maxJitter) added to the exponential backoff
 	//
 	// Example:
 	//   minWait = 2 * time.Seconds
@@ -39,13 +39,13 @@ var (
 		}
 	}
 
-	// LinearBackoff increases the backoff time by multiplying the minWait duration by the number of retries.
+	// LinearBackoff increases the backoff time by multiplying the minWait duration by the number of attempts.
 	//
 	// minWait: the initial backoff
 	//
 	// maxWait: sets an upper bound on the maximum time to wait between two requests. set to 0 for no upper bound
 	//
-	// maxJitter is a random interval [0, maxJitter) added to the exponential backoff.
+	// maxJitter: random interval [0, maxJitter) added to the linear backoff
 	//
 	// Example:
 	//   minWait = 1 * time.Seconds
@@ -78,7 +78,7 @@ var (
 	//
 	// maxWait: sets an upper bound on the maximum time to wait between two requests. set to 0 for no upper bound
 	//
-	// maxJitter is a random interval [0, maxJitter) added to the exponential backoff.
+	// maxJitter: random interval [0, maxJitter) added to the exponential backoff
 	//
 	// Example:
 	//   minWait = 1 * time.Seconds

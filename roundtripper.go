@@ -8,23 +8,27 @@ import (
 	"time"
 )
 
+// RetryRoundtripper is the roundtripper that will wrap around the actual http.Transport roundtripper
+// to enrich the http client with retry functionality.
 type RetryRoundtripper struct {
-	Next          http.RoundTripper
-	MaxRetryCount int
-	RetryPolicy   RetryPolicy
-	BackoffPolicy BackoffPolicy
+	Next             http.RoundTripper
+	MaxRetryCount    int
+	ShouldRetry      RetryPolicy
+	CalculateBackoff BackoffPolicy
 }
 
+// RoundTrip implements the actual roundtripper interface (http.RoundTripper).
 func (r *RetryRoundtripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	var (
-		resp        *http.Response
-		err         error
-		dataBuffer  *bytes.Reader
-		statusCode  int
-		maxAttempts = r.MaxRetryCount + 1
+		resp         *http.Response
+		err          error
+		dataBuffer   *bytes.Reader
+		statusCode   int
+		attemptCount = 1
+		maxAttempts  = r.MaxRetryCount + 1
 	)
 
-	for attemptCount := 1; attemptCount <= maxAttempts; attemptCount++ {
+	for {
 		resp = nil
 		err = nil
 		statusCode = 0
@@ -64,19 +68,24 @@ func (r *RetryRoundtripper) RoundTrip(req *http.Request) (*http.Response, error)
 			statusCode = resp.StatusCode
 		}
 
-		if !r.RetryPolicy(statusCode, err) {
+		if !r.ShouldRetry(statusCode, err) {
 			return resp, err
 		}
 
-		backoff := r.BackoffPolicy(attemptCount)
+		// no need to wait if we do not have retries left
+		attemptCount++
+		if attemptCount >= maxAttempts {
+			break
+		}
 
-		// wo won't need the response anymore, drain (max 4096kb) and close it
-		drainAndCloseBody(resp)
+		backoff := r.CalculateBackoff(attemptCount)
+
+		// we won't need the response anymore, drain (up to a maximum) and close it
+		drainAndCloseBody(resp, 16384)
 
 		timer := time.NewTimer(backoff)
 		select {
 		case <-timer.C:
-			continue
 		case <-req.Context().Done():
 			// context was canceled, return context error
 			return nil, req.Context().Err()
@@ -87,9 +96,9 @@ func (r *RetryRoundtripper) RoundTrip(req *http.Request) (*http.Response, error)
 	return resp, err
 }
 
-func drainAndCloseBody(resp *http.Response) {
+func drainAndCloseBody(resp *http.Response, maxBytes int64) {
 	if resp != nil {
-		io.CopyN(ioutil.Discard, resp.Body, 16384)
+		io.CopyN(ioutil.Discard, resp.Body, maxBytes)
 		resp.Body.Close()
 	}
 }
