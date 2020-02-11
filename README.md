@@ -60,7 +60,7 @@ httpretry.GetEmbeddedTransport(retryClient)
 You may provide your own Backoff- and RetryPolicy.
 
 ```golang
-client := httpretry.NewRetryClient(
+client := httpretry.NewDefaultClient(
     // retry up to 5 times
     httpretry.WithMaxRetryCount(5),
     // retry on status >= 500, if err != nil, or if response was nil (status == 0)
