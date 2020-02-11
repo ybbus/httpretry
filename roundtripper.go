@@ -73,13 +73,13 @@ func (r *RetryRoundtripper) RoundTrip(req *http.Request) (*http.Response, error)
 			return resp, err
 		}
 
+		backoff := r.CalculateBackoff(attemptCount)
+
 		// no need to wait if we do not have retries left
 		attemptCount++
 		if attemptCount > maxAttempts {
 			break
 		}
-
-		backoff := r.CalculateBackoff(attemptCount)
 
 		// we won't need the response anymore, drain (up to a maximum) and close it
 		drainAndCloseBody(resp, 16384)

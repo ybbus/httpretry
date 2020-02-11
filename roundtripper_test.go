@@ -87,7 +87,7 @@ func TestRetryRoundtripperSimple(t *testing.T) {
 		res, err := retryRoundtripper.RoundTrip(req)
 
 		check.Equal(3, mockRetryPolicy.CallCount)
-		check.Equal(2, mockBackoffPolicy.CallCount)
+		check.Equal(3, mockBackoffPolicy.CallCount)
 		check.Equal(3, mockRoundtripper.CallCount)
 		check.True(readerContains(t, res.Body, "finished"))
 		check.Equal(500, res.StatusCode)
