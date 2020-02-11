@@ -74,7 +74,7 @@ func (r *RetryRoundtripper) RoundTrip(req *http.Request) (*http.Response, error)
 
 		// no need to wait if we do not have retries left
 		attemptCount++
-		if attemptCount >= maxAttempts {
+		if attemptCount > maxAttempts {
 			break
 		}
 
@@ -85,10 +85,10 @@ func (r *RetryRoundtripper) RoundTrip(req *http.Request) (*http.Response, error)
 
 		timer := time.NewTimer(backoff)
 		select {
-		case <-timer.C:
 		case <-req.Context().Done():
 			// context was canceled, return context error
 			return nil, req.Context().Err()
+		case <-timer.C:
 		}
 	}
 
