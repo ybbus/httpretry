@@ -49,10 +49,10 @@ httpretry.ReplaceOriginalRoundtripper(retryClient, myRoundTripper)
 httpretry.ModifyOriginalTransport(retryClient, func(t *http.Transport) { t.TLSHandshakeTimeout = 5 * time.Second })
 
 // returns the embedded Roundtripper
-httpretry.GetEmbeddedRoundtripper(retryClient)
+httpretry.GetOriginalRoundtripper(retryClient)
 
 // returns the embedded Roundtripper as http.Transport if it is of that type
-httpretry.GetEmbeddedTransport(retryClient)
+httpretry.GetOriginalTransport(retryClient)
 ```
 
 ### Customize retry settings
