@@ -20,9 +20,8 @@ type RetryRoundtripper struct {
 // RoundTrip implements the actual roundtripper interface (http.RoundTripper).
 func (r *RetryRoundtripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	var (
-		resp *http.Response
-		err  error
-		// TODO: can we at least pool the *bytes.Reader?
+		resp         *http.Response
+		err          error
 		dataBuffer   *bytes.Reader
 		statusCode   int
 		attemptCount = 1
@@ -30,8 +29,6 @@ func (r *RetryRoundtripper) RoundTrip(req *http.Request) (*http.Response, error)
 	)
 
 	for {
-		resp = nil
-		err = nil
 		statusCode = 0
 
 		// if request provides GetBody() we use it as Body,
